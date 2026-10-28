@@ -1,0 +1,25 @@
+{
+  "name": "tutrago-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma B2B2C de Order & Pickup para Boliches (Incubatio - Tutrago)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "test": "turbo run test --concurrency=1",
+    "test:stress": "turbo run test:stress --concurrency=1",
+    "db:generate": "turbo run db:generate",
+    "db:seed": "turbo run db:seed",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "npm@11.16.0"
+}

@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// ENUMS DE MÁQUINA DE ESTADOS
+// ==========================================
+
+enum OrderStatus {
+  CREATED
+  PENDING_PAYMENT
+  PAID_ON_HOLD
+  CANCELLED_REFUNDED
+}
+
+enum TicketStatus {
+  PREP_REQUESTED
+  IN_PREPARATION
+  READY_FOR_PICKUP
+  DELIVERED
+  CANCELLED_REFUNDED
+}
+
+enum BarStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+// ==========================================
+// MASTER & MULTI-TENANT ENTITIES
+// ==========================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String?
+  fullName  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  orders Order[]
+
+  @@map("users")
+}
+
+model Tenant {
+  id             String   @id @default(uuid())
+  name           String
+  slug           String   @unique
+  mpAccessToken  String?  @map("mp_access_token")
+  mpRefreshToken String?  @map("mp_refresh_token")
+  commissionPct  Float    @default(10.0) @map("commission_pct")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  bars     Bar[]
+  products Product[]
+  orders   Order[]
+
+  @@map("tenants")
+}
+
+model Bar {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  name              String    // ej: "Barra Pista Central", "Barra VIP"
+  maxConcurrentPrep Int       @default(15) @map("max_concurrent_prep") // Límite para throttling FIFO
+  printerType       String    @default("WEB_SERIAL_80MM") @map("printer_type")
+  printerIp         String?   @map("printer_ip")
+  status            BarStatus @default(ACTIVE)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tickets PickupTicket[]
+
+  @@index([tenantId])
+  @@map("bars")
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  description String?
+  price       Float
+  category    String   // Tragos, Cervezas, Combos VIP, Sin Alcohol
+  imageUrl    String?  @map("image_url")
+  isAvailable Boolean  @default(true) @map("is_available") // Switch gigante booleano
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  upsells    ProductUpsell[]
+  orderItems OrderItem[]
+
+  @@index([tenantId, isAvailable])
+  @@map("products")
+}
+
+model ProductUpsell {
+  id              String   @id @default(uuid())
+  productId       String   @map("product_id")
+  title           String   // ej: "Cambiar a Gin Bombay Sapphire", "Medida Doble"
+  additionalPrice Float    @map("additional_price")
+  description     String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_upsells")
+}
+
+// ==========================================
+// ETAPA 1: COMPRA FINANCIERA (ORDER)
+// ==========================================
+
+model Order {
+  id             String      @id @default(uuid())
+  userId         String      @map("user_id")
+  tenantId       String      @map("tenant_id")
+  totalAmount    Float       @map("total_amount")
+  platformFee    Float       @map("platform_fee")
+  mpPreferenceId String?     @map("mp_preference_id")
+  mpPaymentId    String?     @map("mp_payment_id")
+  paymentStatus  OrderStatus @default(CREATED) @map("payment_status")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  user    User           @relation(fields: [userId], references: [id])
+  tenant  Tenant         @relation(fields: [tenantId], references: [id])
+  items   OrderItem[]
+  tickets PickupTicket[]
+
+  @@index([userId, paymentStatus])
+  @@index([tenantId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                String   @id @default(uuid())
+  orderId           String   @map("order_id")
+  productId         String   @map("product_id")
+  unitPrice         Float    @map("unit_price")
+  quantityPurchased Int      @map("quantity_purchased")
+  quantityRemaining Int      @map("quantity_remaining") // Saldo de canjes disponibles en la Wallet
+  selectedUpsellId  String?  @map("selected_upsell_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  order           Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product            @relation(fields: [productId], references: [id])
+  pickupItemLinks PickupTicketItem[]
+
+  // Índice compuesto para consultas de Wallet y bloqueos pesimistas en horas pico
+  @@index([orderId, quantityRemaining])
+  @@map("order_items")
+}
+
+// ==========================================
+// ETAPA 2: COMANDA DE RETIRO FÍSICO EN BARRA (PICKUP TICKET)
+// ==========================================
+
+model PickupTicket {
+  id            String       @id @default(uuid())
+  orderId       String       @map("order_id")
+  barId         String       @map("bar_id")
+  status        TicketStatus @default(PREP_REQUESTED)
+  shortCode     String       @map("short_code") // ej: "A47" (1 letra + 2 dígitos)
+  securityColor String       @map("security_color") // Hex de color de seguridad
+  offlineQrJwt  String       @map("offline_qr_jwt") @db.Text // Token JWT firmado para validación sin red
+  activatedAt   DateTime     @default(now()) @map("activated_at")
+  readyAt       DateTime?    @map("ready_at")
+  deliveredAt   DateTime?    @map("delivered_at")
+
+  order Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  bar   Bar                @relation(fields: [barId], references: [id])
+  items PickupTicketItem[]
+
+  // Índice compuesto para consultas instantáneas en el KDS (< 10ms)
+  @@index([barId, status])
+  @@index([shortCode])
+  @@map("pickup_tickets")
+}
+
+model PickupTicketItem {
+  id          String @id @default(uuid())
+  ticketId    String @map("ticket_id")
+  orderItemId String @map("order_item_id")
+  quantity    Int
+
+  ticket    PickupTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  orderItem OrderItem    @relation(fields: [orderItemId], references: [id])
+
+  @@index([ticketId])
+  @@map("pickup_ticket_items")
+}

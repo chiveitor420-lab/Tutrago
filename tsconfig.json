@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@tutrago/shared-types": ["packages/shared-types/src/index.ts"],
+      "@tutrago/ui-kit": ["packages/ui-kit/src/index.ts"],
+      "@tutrago/database": ["packages/database/src/index.ts"]
+    },
+    "moduleResolution": "node",
+    "skipLibCheck": true
+  },
+  "references": [
+    { "path": "./packages/shared-types" },
+    { "path": "./packages/ui-kit" },
+    { "path": "./packages/database" },
+    { "path": "./apps/api" }
+  ]
+}
