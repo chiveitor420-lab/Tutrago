@@ -1,0 +1,46 @@
+services:
+  # ----------------------------------------------------
+  # 1. API Backend (NestJS + WebSockets)
+  # ----------------------------------------------------
+  - type: web
+    name: tutrago-api
+    runtime: node
+    plan: free
+    region: ohio
+    rootDir: apps/api
+    buildCommand: npm install --prefix ../.. && npm run db:generate --prefix ../.. && npm run build
+    startCommand: node dist/src/main.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: tutrago-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: QR_SECRET_KEY
+        generateValue: true
+      - key: MP_ACCESS_TOKEN
+        sync: false
+      - key: MP_WEBHOOK_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        value: "*"
+
+  # ----------------------------------------------------
+  # 2. Redis Cache & FIFO Throttle
+  # ----------------------------------------------------
+  - type: redis
+    name: tutrago-redis
+    plan: free
+    region: ohio
+    ipAllowList: [] # Solo accesible internamente por los servicios de Render
