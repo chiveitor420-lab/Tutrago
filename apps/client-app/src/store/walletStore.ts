@@ -32,17 +32,17 @@ interface WalletState {
 export const useWalletStore = create<WalletState>((set) => ({
   drinks: [
     {
-      orderItemId: 'item-demo-fernet',
-      orderId: 'order-demo-1',
+      orderItemId: '00000000-0000-4000-8000-000000000301',
+      orderId: '00000000-0000-4000-8000-000000000201',
       productId: 'p-fernet',
       productName: 'Fernet Branca con Coca-Cola',
       category: 'Tragos Clásicos',
       unitPrice: 9500,
-      quantityRemaining: 3, // 3 Fernets listos para canjear en la noche
+      quantityRemaining: 2, // 2 Fernets listos para canjear en la noche
     },
     {
-      orderItemId: 'item-demo-gin',
-      orderId: 'order-demo-1',
+      orderItemId: '00000000-0000-4000-8000-000000000302',
+      orderId: '00000000-0000-4000-8000-000000000201',
       productId: 'p-gin',
       productName: 'Gin Tonic Nacional',
       category: 'Gin & Cocktails',

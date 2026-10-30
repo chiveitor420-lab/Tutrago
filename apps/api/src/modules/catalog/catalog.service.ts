@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { EventsGateway } from '../gateway/events.gateway';
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventsGateway: EventsGateway
+  ) {}
 
   async getCatalogByTenant(tenantId: string) {
     return this.prisma.product.findMany({
@@ -21,11 +25,19 @@ export class CatalogService {
       throw new NotFoundException(`Producto con ID ${productId} no encontrado.`);
     }
 
-    return this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id: productId },
       data: { isAvailable },
       include: { upsells: true },
     });
+
+    this.eventsGateway.emitStockToggle({
+      productId: updated.id,
+      tenantId: updated.tenantId,
+      isAvailable: updated.isAvailable,
+    });
+
+    return updated;
   }
 
   async getServiceRecoveryOptions(productId: string) {

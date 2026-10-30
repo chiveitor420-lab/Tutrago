@@ -14,6 +14,16 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { EscPosThermalPrinter } from '@/lib/thermal-print/escpos';
+import { io } from 'socket.io-client';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://tutrago-api.onrender.com';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://tutrago-api.onrender.com';
+
+const BAR_ALIAS_MAP: Record<string, string> = {
+  'bar-pista-123': '00000000-0000-4000-8000-000000000101',
+  'bar-terraza-vip': '00000000-0000-4000-8000-000000000102',
+  'bar-patio-electro': '00000000-0000-4000-8000-000000000103',
+};
 
 interface KdsTicket {
   id: string;
@@ -29,7 +39,8 @@ interface KdsTicket {
 
 export default function BarKdsPage() {
   const params = useParams();
-  const barId = (params?.barId as string) || 'bar-pista-123';
+  const rawBarId = (params?.barId as string) || '00000000-0000-4000-8000-000000000101';
+  const barId = BAR_ALIAS_MAP[rawBarId] || rawBarId;
   const barName = 'Barra Pista Central';
 
   const [tickets, setTickets] = useState<KdsTicket[]>([
@@ -71,6 +82,75 @@ export default function BarKdsPage() {
   const [manualCode, setManualCode] = useState('');
   const [scanAlert, setScanAlert] = useState<{ type: 'SUCCESS' | 'ERROR'; message: string } | null>(null);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
+
+  // 0. Conexión en Tiempo Real con Backend API + WebSocket (Socket.io)
+  useEffect(() => {
+    // Cargar tickets activos desde la base de datos
+    fetch(`${API_URL}/pickup/bar/${barId}/active`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped: KdsTicket[] = data.map((t: any) => ({
+            id: t.id,
+            shortCode: t.shortCode,
+            securityColor: t.securityColor,
+            status: t.status === 'PREP_REQUESTED' ? 'IN_PREPARATION' : t.status,
+            activatedAt: t.activatedAt,
+            items: (t.items || []).map((i: any) => ({
+              name: i.orderItem?.product?.name || i.productName || i.name || 'Bebida',
+              quantity: i.quantity,
+            })),
+          }));
+          setTickets((prev) => {
+            const existingIds = new Set(mapped.map((m) => m.id));
+            return [...mapped, ...prev.filter((p) => !existingIds.has(p.id))];
+          });
+        }
+      })
+      .catch(() => {
+        // Fallback silencioso a datos locales de contingencia
+      });
+
+    const socket = io(WS_URL, {
+      transports: ['websocket', 'polling'],
+    });
+
+    socket.on('connect', () => {
+      socket.emit('join:bar', { barId });
+    });
+
+    socket.on('bar:ticket_print', (event: any) => {
+      const incoming = event?.ticket;
+      if (!incoming) return;
+      const newKdsTicket: KdsTicket = {
+        id: incoming.id || incoming.ticketId,
+        shortCode: incoming.shortCode,
+        securityColor: incoming.securityColor || '#10B981',
+        status: incoming.status === 'PREP_REQUESTED' ? 'IN_PREPARATION' : (incoming.status || 'IN_PREPARATION'),
+        activatedAt: incoming.activatedAt || new Date().toISOString(),
+        items: (incoming.items || []).map((i: any) => ({
+          name: i.productName || i.name || 'Bebida',
+          quantity: i.quantity,
+        })),
+      };
+
+      setTickets((prev) => {
+        if (prev.some((t) => t.id === newKdsTicket.id)) return prev;
+        return [newKdsTicket, ...prev];
+      });
+    });
+
+    socket.on('bar:ticket_updated', (event: any) => {
+      if (!event?.ticketId || !event?.status) return;
+      setTickets((prev) =>
+        prev.map((t) => (t.id === event.ticketId ? { ...t, status: event.status } : t))
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [barId]);
 
   // 1. Soporte para Pistola Lectora QR USB (captura ráfaga rápida de teclado terminada en Enter)
   useEffect(() => {
@@ -122,6 +202,12 @@ export default function BarKdsPage() {
     setTickets((prev) =>
       prev.map((t) => (t.id === ticketId ? { ...t, status: nextStatus } : t))
     );
+
+    fetch(`${API_URL}/pickup/ticket/${ticketId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nextStatus }),
+    }).catch(() => {});
 
     // Audio beep de confirmación táctil en la barra
     if (typeof window !== 'undefined') {

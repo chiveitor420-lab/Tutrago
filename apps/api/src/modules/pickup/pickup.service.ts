@@ -15,6 +15,7 @@ import {
 import * as crypto from 'node:crypto';
 import type Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../config/redis.provider';
+import { EventsGateway } from '../gateway/events.gateway';
 
 @Injectable()
 export class PickupService {
@@ -24,6 +25,7 @@ export class PickupService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly eventsGateway: EventsGateway,
     @Optional() @Inject(REDIS_CLIENT) private readonly redisClient?: Redis
   ) {}
 
@@ -50,7 +52,7 @@ export class PickupService {
    * Firma el token QR offline (JWT HS256 nativo con validez de 12 horas para operar en modo avión)
    */
   public signOfflineJwt(payload: Omit<OfflineQrPayload, 'iat' | 'exp'>): string {
-    const secret = process.env.JWT_OFFLINE_SECRET || 'tutrago_offline_ticket_secret_key_8841';
+    const secret = process.env.TICKET_HMAC_SECRET || process.env.JWT_OFFLINE_SECRET || 'tutrago_offline_ticket_secret_key_8841';
     const header = { alg: 'HS256', typ: 'JWT' };
     const iat = Math.floor(Date.now() / 1000);
     const exp = iat + 12 * 3600;
@@ -66,7 +68,7 @@ export class PickupService {
    * Verifica la firma y vigencia del JWT offline
    */
   public verifyOfflineJwt(token: string): OfflineQrPayload {
-    const secret = process.env.JWT_OFFLINE_SECRET || 'tutrago_offline_ticket_secret_key_8841';
+    const secret = process.env.TICKET_HMAC_SECRET || process.env.JWT_OFFLINE_SECRET || 'tutrago_offline_ticket_secret_key_8841';
     const parts = token.split('.');
     if (parts.length !== 3) throw new Error('Token JWT inválido');
     const [b64Header, b64Payload, signature] = parts;
@@ -248,7 +250,7 @@ export class PickupService {
       ticket.status = TicketStatus.IN_PREPARATION;
     }
 
-    return {
+    const responsePayload = {
       ticketId: ticket.id,
       orderId: ticket.orderId,
       barId: ticket.barId,
@@ -265,6 +267,31 @@ export class PickupService {
       })),
       activatedAt: ticket.activatedAt,
     };
+
+    // Emitir evento en tiempo real por WebSocket hacia el monitor KDS de la barra
+    this.eventsGateway.emitTicketPrint(ticket.barId, {
+      barId: ticket.barId,
+      timestamp: new Date().toISOString(),
+      ticket: {
+        id: ticket.id,
+        orderId: ticket.orderId,
+        barId: ticket.barId,
+        barName: ticket.bar.name,
+        status: ticket.status as TicketStatus,
+        shortCode: ticket.shortCode,
+        securityColor: ticket.securityColor,
+        offlineQrToken: ticket.offlineQrJwt,
+        items: ticket.items.map((i) => ({
+          id: i.id,
+          ticketId: ticket.id,
+          productName: i.orderItem.product.name,
+          quantity: i.quantity,
+        })),
+        activatedAt: ticket.activatedAt,
+      },
+    });
+
+    return responsePayload;
   }
 
   /**
@@ -287,6 +314,21 @@ export class PickupService {
       where: { id: ticketId },
       data: updateData,
     });
+
+    const statusPayload = {
+      ticketId: updated.id,
+      status: nextStatus,
+      shortCode: updated.shortCode,
+      securityColor: updated.securityColor,
+      barId: updated.barId,
+      readyAt: updated.readyAt?.toISOString(),
+      deliveredAt: updated.deliveredAt?.toISOString(),
+    };
+
+    this.eventsGateway.emitTicketStatus(updated.id, updated.barId, statusPayload);
+    if (nextStatus === TicketStatus.READY_FOR_PICKUP) {
+      this.eventsGateway.emitTicketReady(updated.id, statusPayload);
+    }
 
     // Liberar turno de preparación en Redis cuando pasa a READY_FOR_PICKUP o DELIVERED
     if (nextStatus === TicketStatus.READY_FOR_PICKUP || nextStatus === TicketStatus.DELIVERED) {

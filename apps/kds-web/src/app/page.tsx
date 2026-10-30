@@ -5,9 +5,9 @@ import { Wine, Monitor, Layers, ShieldCheck, ArrowRight, RefreshCw } from 'lucid
 
 export default function KdsHomePage() {
   const bars = [
-    { id: 'bar-pista-123', name: 'Barra Pista Central', queue: 4, type: 'Principal (Impresora 80mm)' },
-    { id: 'bar-terraza-vip', name: 'Barra Terraza VIP', queue: 1, type: 'VIP Cocktails' },
-    { id: 'bar-patio-electro', name: 'Barra Patio Electrónica', queue: 0, type: 'Patio Cervezas' },
+    { id: '00000000-0000-4000-8000-000000000101', name: 'Barra Pista Central', queue: 4, type: 'Principal (Impresora 80mm)' },
+    { id: '00000000-0000-4000-8000-000000000102', name: 'Barra Terraza VIP', queue: 1, type: 'VIP Cocktails' },
+    { id: '00000000-0000-4000-8000-000000000103', name: 'Barra Patio Electrónica', queue: 0, type: 'Patio Cervezas' },
   ];
 
   return (

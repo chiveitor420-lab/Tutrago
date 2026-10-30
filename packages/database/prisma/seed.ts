@@ -19,6 +19,7 @@ async function main() {
   // 2. Crear Boliche Principal (Tenant)
   const tenant = await prisma.tenant.create({
     data: {
+      id: '00000000-0000-4000-8000-000000000001',
       name: 'Club Nocturno Tutrago Central',
       slug: 'club-tutrago',
       commissionPct: 10.0,
@@ -31,6 +32,7 @@ async function main() {
   // 3. Crear 3 Barras Internas con límites de Throttling
   const barPista = await prisma.bar.create({
     data: {
+      id: '00000000-0000-4000-8000-000000000101',
       tenantId: tenant.id,
       name: 'Barra Pista Central',
       maxConcurrentPrep: 15,
@@ -40,6 +42,7 @@ async function main() {
 
   const barVip = await prisma.bar.create({
     data: {
+      id: '00000000-0000-4000-8000-000000000102',
       tenantId: tenant.id,
       name: 'Barra Terraza VIP',
       maxConcurrentPrep: 10,
@@ -49,6 +52,7 @@ async function main() {
 
   const barPatio = await prisma.bar.create({
     data: {
+      id: '00000000-0000-4000-8000-000000000103',
       tenantId: tenant.id,
       name: 'Barra Patio Electrónica',
       maxConcurrentPrep: 12,
@@ -252,6 +256,7 @@ async function main() {
   // 5. Crear Usuario de prueba con una orden en "PAID_ON_HOLD"
   const user = await prisma.user.create({
     data: {
+      id: '00000000-0000-4000-8000-000000000901',
       email: 'juan.perez@tutrago.com',
       fullName: 'Juan Pérez',
       phone: '+5491134567890',
@@ -269,6 +274,7 @@ async function main() {
   if (fernetProduct && ginProduct) {
     const order = await prisma.order.create({
       data: {
+        id: '00000000-0000-4000-8000-000000000201',
         userId: user.id,
         tenantId: tenant.id,
         totalAmount: 27500,
@@ -278,12 +284,14 @@ async function main() {
         items: {
           create: [
             {
+              id: '00000000-0000-4000-8000-000000000301',
               productId: fernetProduct.id,
               unitPrice: fernetProduct.price,
               quantityPurchased: 2,
               quantityRemaining: 2, // 2 Fernets listos para canjear en la Wallet
             },
             {
+              id: '00000000-0000-4000-8000-000000000302',
               productId: ginProduct.id,
               unitPrice: ginProduct.price,
               quantityPurchased: 1,

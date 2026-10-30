@@ -8,8 +8,11 @@ import {
   Animated,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useWalletStore } from '../../../src/store/walletStore';
+import { useWalletStore } from '../../src/store/walletStore';
 import * as Haptics from 'expo-haptics';
+import { io } from 'socket.io-client';
+
+const WS_URL = process.env.EXPO_PUBLIC_WS_URL || 'wss://tutrago-api.onrender.com';
 
 export default function AntiNoiseTicketScreen() {
   const router = useRouter();
@@ -75,6 +78,37 @@ export default function AntiNoiseTicketScreen() {
 
     return () => clearInterval(timer);
   }, [ticket.status]);
+
+  // Suscripción por WebSocket a cambios de estado en tiempo real desde la barra KDS
+  useEffect(() => {
+    const currentId = ticket.ticketId;
+    if (!currentId) return;
+
+    const socket = io(WS_URL, {
+      transports: ['websocket', 'polling'],
+    });
+
+    socket.on('connect', () => {
+      socket.emit('join:ticket', { ticketId: currentId });
+    });
+
+    const handleStatusUpdate = (payload: any) => {
+      if (payload?.status) {
+        setTicket((prev) => {
+          const updated = { ...prev, status: payload.status };
+          setActiveTicket(updated);
+          return updated;
+        });
+      }
+    };
+
+    socket.on('ticket:ready_vibrate', handleStatusUpdate);
+    socket.on('ticket:status_changed', handleStatusUpdate);
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [ticket.ticketId]);
 
   const isReady = ticket.status === 'READY_FOR_PICKUP';
   const backgroundColor = isReady ? ticket.securityColor : '#121215';

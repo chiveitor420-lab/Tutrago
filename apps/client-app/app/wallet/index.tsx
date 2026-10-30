@@ -10,18 +10,20 @@ import {
 import { useRouter } from 'expo-router';
 import { useWalletStore } from '../../src/store/walletStore';
 
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://tutrago-api.onrender.com';
+
 export default function WalletScreen() {
   const router = useRouter();
   const { drinks, setActiveTicket, redeemDrinkLocally } = useWalletStore();
 
-  const [selectedBar, setSelectedBar] = useState('bar-pista-123');
+  const [selectedBar, setSelectedBar] = useState('00000000-0000-4000-8000-000000000101');
   const [redeemQuantities, setRedeemQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
 
   const bars = [
-    { id: 'bar-pista-123', name: 'Barra Pista Central', wait: '~3 min', tag: 'Más cercana' },
-    { id: 'bar-terraza-vip', name: 'Barra Terraza VIP', wait: '~1 min', tag: 'Rápida' },
-    { id: 'bar-patio-electro', name: 'Barra Patio Electrónica', wait: '~2 min', tag: 'Patio' },
+    { id: '00000000-0000-4000-8000-000000000101', name: 'Barra Pista Central', wait: '~3 min', tag: 'Más cercana' },
+    { id: '00000000-0000-4000-8000-000000000102', name: 'Barra Terraza VIP', wait: '~1 min', tag: 'Rápida' },
+    { id: '00000000-0000-4000-8000-000000000103', name: 'Barra Patio Electrónica', wait: '~2 min', tag: 'Patio' },
   ];
 
   const updateQuantity = (itemId: string, max: number, delta: number) => {
@@ -50,25 +52,61 @@ export default function WalletScreen() {
 
     const selectedBarObj = bars.find((b) => b.id === selectedBar);
 
-    // Simulación de generación transaccional del ticket
-    const shortCode = 'A' + Math.floor(Math.random() * 90 + 10);
-    const securityColors = ['#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6'];
-    const securityColor = securityColors[Math.floor(Math.random() * securityColors.length)];
-    const ticketId = `ticket-${Date.now()}`;
+    let newTicket: any = null;
 
-    // Token JWT offline simulado
-    const offlineQrToken = `jwt.offline.${ticketId}.${shortCode}`;
+    try {
+      const response = await fetch(`${API_URL}/pickup/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: '00000000-0000-4000-8000-000000000901',
+          barId: selectedBar,
+          items: itemsToRedeem.map((i) => ({
+            orderItemId: i.orderItemId,
+            quantityToRedeem: i.quantityToRedeem,
+          })),
+        }),
+      });
 
-    const newTicket = {
-      ticketId,
-      shortCode,
-      securityColor,
-      status: 'IN_PREPARATION' as const,
-      offlineQrToken,
-      barName: selectedBarObj?.name || 'Barra Pista Central',
-      items: itemsToRedeem.map((i) => ({ name: i.name, quantity: i.quantityToRedeem })),
-      activatedAt: new Date().toISOString(),
-    };
+      if (response.ok) {
+        const data = await response.json();
+        newTicket = {
+          ticketId: data.ticketId,
+          shortCode: data.shortCode,
+          securityColor: data.securityColor,
+          status: data.status || 'IN_PREPARATION',
+          offlineQrToken: data.offlineQrToken,
+          barName: data.barName || selectedBarObj?.name || 'Barra Pista Central',
+          items: (data.items || itemsToRedeem).map((i: any) => ({
+            name: i.name,
+            quantity: i.quantity || i.quantityToRedeem,
+          })),
+          activatedAt: data.activatedAt || new Date().toISOString(),
+        };
+      }
+    } catch {
+      // Continúa con fallback offline-first si el usuario perdió señal
+    }
+
+    if (!newTicket) {
+      // Contingencia offline-first local
+      const shortCode = 'A' + Math.floor(Math.random() * 90 + 10);
+      const securityColors = ['#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6'];
+      const securityColor = securityColors[Math.floor(Math.random() * securityColors.length)];
+      const ticketId = `ticket-${Date.now()}`;
+      const offlineQrToken = `jwt.offline.${ticketId}.${shortCode}`;
+
+      newTicket = {
+        ticketId,
+        shortCode,
+        securityColor,
+        status: 'IN_PREPARATION' as const,
+        offlineQrToken,
+        barName: selectedBarObj?.name || 'Barra Pista Central',
+        items: itemsToRedeem.map((i) => ({ name: i.name, quantity: i.quantityToRedeem })),
+        activatedAt: new Date().toISOString(),
+      };
+    }
 
     // Descontar del inventario de la wallet
     for (const item of itemsToRedeem) {
@@ -80,7 +118,7 @@ export default function WalletScreen() {
     setLoading(false);
 
     // Navegar de inmediato a la Pantalla de Retiro Anti-Ruido
-    router.push(`/ticket/${ticketId}`);
+    router.push(`/ticket/${newTicket.ticketId}`);
   };
 
   return (

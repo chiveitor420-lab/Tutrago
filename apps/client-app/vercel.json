@@ -3,7 +3,7 @@
   "cleanUrls": true,
   "framework": null,
   "outputDirectory": "dist",
-  "buildCommand": "cd ../.. && npx expo export -p web",
+  "buildCommand": "npx expo export -p web",
   "installCommand": "cd ../.. && npm install",
   "rewrites": [
     {
