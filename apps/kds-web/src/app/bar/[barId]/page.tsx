@@ -205,7 +205,10 @@ export default function BarKdsPage() {
 
     fetch(`${API_URL}/pickup/ticket/${ticketId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': `kds-status-${ticketId}-${nextStatus}-${Date.now()}`,
+      },
       body: JSON.stringify({ status: nextStatus }),
     }).catch(() => {});
 

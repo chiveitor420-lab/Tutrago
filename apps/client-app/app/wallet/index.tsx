@@ -57,7 +57,10 @@ export default function WalletScreen() {
     try {
       const response = await fetch(`${API_URL}/pickup/request`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': `pickup-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        },
         body: JSON.stringify({
           userId: '00000000-0000-4000-8000-000000000901',
           barId: selectedBar,
