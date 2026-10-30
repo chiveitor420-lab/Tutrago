@@ -8,8 +8,8 @@ services:
     plan: free
     region: ohio
     rootDir: apps/api
-    buildCommand: npm install --prefix ../.. && npm run db:generate --prefix ../.. && npm run build
-    startCommand: node dist/src/main.js
+    buildCommand: npm install --prefix ../.. && npm run db:generate --prefix ../.. && npx turbo run build --filter=@tutrago/api
+    startCommand: node dist/main.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
