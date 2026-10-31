@@ -1,18 +1,20 @@
 {
   "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "downlevelIteration": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "baseUrl": ".",
     "paths": {
       "@tutrago/shared-types": ["packages/shared-types/src/index.ts"],
       "@tutrago/ui-kit": ["packages/ui-kit/src/index.ts"],
       "@tutrago/database": ["packages/database/src/index.ts"]
     },
-    "moduleResolution": "node",
     "skipLibCheck": true
   },
-  "references": [
-    { "path": "./packages/shared-types" },
-    { "path": "./packages/ui-kit" },
-    { "path": "./packages/database" },
-    { "path": "./apps/api" }
-  ]
+  "exclude": ["node_modules", "**/dist", "**/.next"]
 }

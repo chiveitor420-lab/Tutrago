@@ -1,6 +1,11 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { OrderStatus, CreateOrderInput } from '@tutrago/shared-types';
+import {
+  OrderStatus,
+  CreateOrderInput,
+  calculateOrderFinancials,
+  ItemFinancialInput,
+} from '@tutrago/shared-types';
 
 @Injectable()
 export class OrdersService {
@@ -8,8 +13,13 @@ export class OrdersService {
 
   /**
    * Crea una orden de compra en estado CREATED previa al pago.
+   * Aplica aritmética decimal exacta en centavos (BigInt) configurable por Tenant.
    */
   async createOrder(dto: CreateOrderInput) {
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('La orden debe incluir al menos una bebida.');
+    }
+
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: dto.tenantId },
     });
@@ -29,11 +39,14 @@ export class OrdersService {
       });
     }
 
-    // Calcular montos a partir de los productos en base de datos
-    let totalAmount = 0;
-    const orderItemsData = [];
+    // Validar productos y preparar insumos financieros exactos por bebida
+    const financialInputs: ItemFinancialInput[] = [];
 
     for (const item of dto.items) {
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException(`Cantidad inválida para producto ${item.productId}.`);
+      }
+
       const product = await this.prisma.product.findUnique({
         where: { id: item.productId },
         include: { upsells: true },
@@ -47,33 +60,61 @@ export class OrdersService {
         throw new BadRequestException(`El producto "${product.name}" se encuentra agotado.`);
       }
 
-      let unitPrice = product.price;
+      let upsellPrice = 0;
 
       if (item.selectedUpsellId) {
         const upsell = product.upsells.find((u) => u.id === item.selectedUpsellId);
-        if (upsell) {
-          unitPrice += upsell.additionalPrice;
+        if (!upsell) {
+          throw new BadRequestException(
+            `El upgrade seleccionado (${item.selectedUpsellId}) no pertenece al producto "${product.name}".`
+          );
         }
+        upsellPrice = upsell.additionalPrice;
       }
 
-      totalAmount += unitPrice * item.quantity;
-      orderItemsData.push({
+      financialInputs.push({
         productId: product.id,
-        unitPrice,
-        quantityPurchased: item.quantity,
-        quantityRemaining: 0, // Se habilitará tras aprobación en el Webhook
+        basePrice: product.price,
+        upsellPrice,
+        quantity: item.quantity,
         selectedUpsellId: item.selectedUpsellId,
       });
     }
 
-    const platformFee = Math.round(totalAmount * ((tenant.commissionPct || 10.0) / 100.0) * 100) / 100;
+    const commissionPct =
+      tenant.commissionPct !== undefined && tenant.commissionPct !== null
+        ? tenant.commissionPct
+        : Number(process.env.INCUBATIO_COMMISSION_PCT ?? 10.0);
+
+    const gatewayFeePct =
+      (tenant as any).gatewayFeePct !== undefined && (tenant as any).gatewayFeePct !== null
+        ? (tenant as any).gatewayFeePct
+        : Number(process.env.MP_GATEWAY_FEE_PCT ?? 4.5);
+
+    const breakdown = calculateOrderFinancials(financialInputs, commissionPct, gatewayFeePct);
+
+    const orderItemsData = breakdown.items.map((item) => ({
+      productId: item.productId,
+      unitPrice: item.unitPrice,
+      subtotal: item.subtotal,
+      itemPlatformFee: item.itemPlatformFee,
+      itemGatewayFee: item.itemGatewayFee,
+      itemTenantNet: item.itemTenantNet,
+      quantityPurchased: item.quantityPurchased,
+      quantityRemaining: 0, // Se habilitará atómicamente tras aprobación en el Webhook / Pasarela
+      selectedUpsellId: item.selectedUpsellId,
+    }));
 
     return this.prisma.order.create({
       data: {
         userId: user.id,
         tenantId: tenant.id,
-        totalAmount,
-        platformFee,
+        totalAmount: breakdown.totalAmount,
+        platformFee: breakdown.platformFee,
+        gatewayFee: breakdown.gatewayFee,
+        tenantNetAmount: breakdown.tenantNetAmount,
+        appliedCommissionPct: breakdown.appliedCommissionPct,
+        appliedGatewayFeePct: breakdown.appliedGatewayFeePct,
         paymentStatus: OrderStatus.CREATED,
         items: {
           create: orderItemsData,
@@ -83,6 +124,7 @@ export class OrdersService {
         items: {
           include: { product: true },
         },
+        tenant: true,
       },
     });
   }

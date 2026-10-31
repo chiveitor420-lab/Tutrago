@@ -33,20 +33,33 @@ enum BarStatus {
   CLOSED
 }
 
+enum UserRole {
+  CONSUMER
+  BAR_OPERATOR
+  VENUE_ADMIN
+  INCUBATIO_ADMIN
+}
+
 // ==========================================
 // MASTER & MULTI-TENANT ENTITIES
 // ==========================================
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  phone     String?
-  fullName  String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid())
+  email         String   @unique
+  phone         String?
+  fullName      String
+  role          UserRole @default(CONSUMER)
+  tenantId      String?  @map("tenant_id")
+  assignedBarId String?  @map("assigned_bar_id")
+  passwordHash  String?  @map("password_hash")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   orders Order[]
 
+  @@index([role, tenantId])
+  @@index([assignedBarId])
   @@map("users")
 }
 
@@ -57,6 +70,8 @@ model Tenant {
   mpAccessToken  String?  @map("mp_access_token")
   mpRefreshToken String?  @map("mp_refresh_token")
   commissionPct  Float    @default(10.0) @map("commission_pct")
+  gatewayFeePct  Float    @default(4.5) @map("gateway_fee_pct")
+  sandboxMode    Boolean  @default(true) @map("sandbox_mode")
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
@@ -126,16 +141,20 @@ model ProductUpsell {
 // ==========================================
 
 model Order {
-  id             String      @id @default(uuid())
-  userId         String      @map("user_id")
-  tenantId       String      @map("tenant_id")
-  totalAmount    Float       @map("total_amount")
-  platformFee    Float       @map("platform_fee")
-  mpPreferenceId String?     @map("mp_preference_id")
-  mpPaymentId    String?     @map("mp_payment_id")
-  paymentStatus  OrderStatus @default(CREATED) @map("payment_status")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
+  id                   String      @id @default(uuid())
+  userId               String      @map("user_id")
+  tenantId             String      @map("tenant_id")
+  totalAmount          Float       @map("total_amount")
+  platformFee          Float       @map("platform_fee")
+  gatewayFee           Float       @default(0) @map("gateway_fee")
+  tenantNetAmount      Float       @default(0) @map("tenant_net_amount")
+  appliedCommissionPct Float       @default(10.0) @map("applied_commission_pct")
+  appliedGatewayFeePct Float       @default(4.5) @map("applied_gateway_fee_pct")
+  mpPreferenceId       String?     @map("mp_preference_id")
+  mpPaymentId          String?     @map("mp_payment_id")
+  paymentStatus        OrderStatus @default(CREATED) @map("payment_status")
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
 
   user    User           @relation(fields: [userId], references: [id])
   tenant  Tenant         @relation(fields: [tenantId], references: [id])
@@ -152,6 +171,10 @@ model OrderItem {
   orderId           String   @map("order_id")
   productId         String   @map("product_id")
   unitPrice         Float    @map("unit_price")
+  subtotal          Float    @default(0) @map("subtotal")
+  itemPlatformFee   Float    @default(0) @map("item_platform_fee")
+  itemGatewayFee    Float    @default(0) @map("item_gateway_fee")
+  itemTenantNet     Float    @default(0) @map("item_tenant_net")
   quantityPurchased Int      @map("quantity_purchased")
   quantityRemaining Int      @map("quantity_remaining") // Saldo de canjes disponibles en la Wallet
   selectedUpsellId  String?  @map("selected_upsell_id")

@@ -1,6 +1,6 @@
 /**
  * Conductor de Impresión Térmica ESC/POS (80mm) para Barras de Boliche.
- * Implementa salida directa por WebSerial API y WebUSB API con fallback a @media print.
+ * Implementa salida directa por WebUSB API, WebSerial API y fallback a @media print de 80mm.
  */
 
 export interface ThermalPrintTicketData {
@@ -84,6 +84,37 @@ export class EscPosThermalPrinter {
   }
 
   /**
+   * Intenta imprimir directamente vía WebUSB API (impresoras térmicas USB Epson/POS-80)
+   */
+  public static async printViaWebUsb(data: ThermalPrintTicketData): Promise<boolean> {
+    if (typeof window === 'undefined' || !('usb' in navigator)) {
+      return false;
+    }
+
+    try {
+      const usbNav = (navigator as any).usb;
+      const devices = await usbNav.getDevices();
+      const device = devices[0];
+      if (!device) {
+        return false;
+      }
+      await device.open();
+      if (device.configuration === null) {
+        await device.selectConfiguration(1);
+      }
+      await device.claimInterface(0);
+      const buffer = this.buildEscPosBuffer(data);
+      await device.transferOut(1, buffer);
+      await device.close();
+      console.log('[ThermalPrinter] Impresión física completada vía WebUSB.');
+      return true;
+    } catch (err) {
+      console.warn('[ThermalPrinter] WebUSB no disponible:', err);
+      return false;
+    }
+  }
+
+  /**
    * Intenta imprimir a través de WebSerial API (puerto COM/USB de Windows)
    */
   public static async printViaWebSerial(data: ThermalPrintTicketData): Promise<boolean> {
@@ -92,8 +123,12 @@ export class EscPosThermalPrinter {
     }
 
     try {
-      // @ts-ignore
-      const port = await navigator.serial.requestPort();
+      const serialNav = (navigator as any).serial;
+      const ports = await serialNav.getPorts();
+      const port = ports[0];
+      if (!port) {
+        return false;
+      }
       await port.open({ baudRate: 9600 });
       const writer = port.writable.getWriter();
       const buffer = this.buildEscPosBuffer(data);
@@ -103,18 +138,45 @@ export class EscPosThermalPrinter {
       console.log('[ThermalPrinter] Impresión física completada vía WebSerial.');
       return true;
     } catch (err) {
-      console.warn('[ThermalPrinter] WebSerial no disponible o cancelado por el usuario:', err);
+      console.warn('[ThermalPrinter] WebSerial no disponible:', err);
       return false;
     }
   }
 
   /**
-   * Dispara la impresión silenciosa utilizando fallback CSS @media print de 80mm
+   * Despacha comanda intentando WebUSB -> WebSerial -> Fallback Impresión Navegador 80mm
    */
-  public static printViaHtmlFallback(data: ThermalPrintTicketData) {
+  public static async dispatchThermalPrint(
+    data: ThermalPrintTicketData,
+    triggerBrowserDialog = false
+  ): Promise<{ method: 'WEB_USB' | 'WEB_SERIAL' | 'BROWSER_80MM'; byteSize: number }> {
+    const buffer = this.buildEscPosBuffer(data);
+
+    const printedUsb = await this.printViaWebUsb(data);
+    if (printedUsb) {
+      return { method: 'WEB_USB', byteSize: buffer.byteLength };
+    }
+
+    const printedSerial = await this.printViaWebSerial(data);
+    if (printedSerial) {
+      return { method: 'WEB_SERIAL', byteSize: buffer.byteLength };
+    }
+
+    this.printViaHtmlFallback(data, triggerBrowserDialog);
+    return { method: 'BROWSER_80MM', byteSize: buffer.byteLength };
+  }
+
+  /**
+   * Renderiza la comanda en formato térmico de 80mm (@media print)
+   */
+  public static printViaHtmlFallback(data: ThermalPrintTicketData, openDialog = false) {
     if (typeof window === 'undefined') return;
 
+    const existing = document.getElementById('tutrago-thermal-print-frame');
+    if (existing) existing.remove();
+
     const printFrame = document.createElement('iframe');
+    printFrame.id = 'tutrago-thermal-print-frame';
     printFrame.style.position = 'absolute';
     printFrame.style.top = '-9999px';
     printFrame.style.left = '-9999px';
@@ -151,7 +213,7 @@ export class EscPosThermalPrinter {
         <body>
           <div class="header">
             <h2 style="margin: 0;">${data.barName.toUpperCase()}</h2>
-            <small>TUTRAGO - COMANDA EN BARRA</small>
+            <small>TUTRAGO - COMANDA EN BARRA (80MM)</small>
           </div>
           <div class="short-code">#${data.shortCode}</div>
           <p>Color Control: <b>${data.securityColor}</b></p>
@@ -167,10 +229,15 @@ export class EscPosThermalPrinter {
     printFrame.contentDocument?.write(htmlContent);
     printFrame.contentDocument?.close();
 
-    setTimeout(() => {
-      printFrame.contentWindow?.focus();
-      printFrame.contentWindow?.print();
-      document.body.removeChild(printFrame);
-    }, 400);
+    if (openDialog) {
+      setTimeout(() => {
+        try {
+          printFrame.contentWindow?.focus();
+          printFrame.contentWindow?.print();
+        } catch {
+          // ignore
+        }
+      }, 300);
+    }
   }
 }

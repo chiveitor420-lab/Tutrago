@@ -19,10 +19,12 @@ dist/
 
 # Environment variables
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+!.env.production
+**/packages/**/.env*
+.vercel/
+.vercel
 
 # Logs
 npm-debug.log*

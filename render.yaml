@@ -27,14 +27,16 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
-      - key: QR_SECRET_KEY
+      - key: TICKET_HMAC_SECRET
+        generateValue: true
+      - key: PILOT_SANDBOX_PIN
         generateValue: true
       - key: MP_ACCESS_TOKEN
         sync: false
       - key: MP_WEBHOOK_SECRET
         sync: false
-      - key: CORS_ORIGIN
-        value: "*"
+      - key: CORS_ORIGINS
+        value: "https://tutrago-client-app.vercel.app,https://tutrago-kds-web.vercel.app,http://localhost:3000,http://localhost:8081"
 
   # ----------------------------------------------------
   # 2. Redis Cache & FIFO Throttle
